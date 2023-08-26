@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+
+set -eu
+
+cd "$(dirname "$0")/.."
+
+function clone_repo {
+	owner=$1
+	name=$2
+	sha=$3
+
+	path=examples/$name
+	if [ ! -d "$path" ]; then
+		echo "Cloning $owner/$name"
+		git clone "https://github.com/$owner/$name" "$path"
+	fi
+
+	pushd "$path" >/dev/null
+	actual_sha=$(git rev-parse HEAD)
+	if [ "$actual_sha" != "$sha" ]; then
+		echo "Updating $owner/$name to $sha"
+		git fetch
+		git reset --hard "$sha"
+	fi
+	popd >/dev/null
+}
+
+clone_repo zsh-users zsh 9b9870a6dc526e9d1f4406a730cbaa17a462e46f
+
+known_failures="$(cat script/known_failures.txt)"
+
+# shellcheck disable=2046
+tree-sitter parse -q \
+	"examples/**/*.zsh" \
+	$(grep -rlZ '^#!/.*zsh' examples/ | tr '\0' ' ') \
+	$(for file in $known_failures; do echo "!${file}"; done)
+
+example_count_with_shebang=$(grep -rl '^#!/.*zsh' examples/ | wc -l)
+example_count_without_shebang=$(find examples -name "*.zsh" | wc -l)
+example_count=$((example_count_with_shebang + example_count_without_shebang))
+failure_count=$(wc -w <<<"$known_failures")
+success_count=$((example_count - failure_count))
+success_percent=$(bc -l <<<"100*${success_count}/${example_count}")
+
+printf \
+	"Successfully parsed %d of %d example files (%.1f%%)\n" \
+	"$success_count" "$example_count" "$success_percent"
